@@ -9,10 +9,10 @@ services:
       - NODE_ENV=production
       - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
     volumes:
-      # Persist vector store and job database
-      - ./data:/app/data
+      # Persist vector store and job database on /mnt (15GB free space)
+      - /mnt/rag-data:/app/data
       # Persist uploaded files (optional)
-      - ./uploads:/app/uploads
+      - /mnt/rag-uploads:/app/uploads
     networks:
       - rag-network
     healthcheck:
