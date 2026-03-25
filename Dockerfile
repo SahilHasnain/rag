@@ -10,8 +10,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --legacy-peer-deps --omit=dev
+# Install ALL dependencies (including devDependencies needed for build)
+RUN npm ci --legacy-peer-deps
 
 # Copy application code
 COPY . .
@@ -24,11 +24,16 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Copy only necessary files from builder
-COPY --from=builder /app/package*.json ./
+# Install only production dependencies
+COPY package*.json ./
+RUN npm ci --legacy-peer-deps --omit=dev
+
+# Copy built app and necessary runtime files
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/app ./app
+COPY --from=builder /app/lib ./lib
+COPY --from=builder /app/next.config.ts ./next.config.ts
 
 # Expose port
 EXPOSE 3000
