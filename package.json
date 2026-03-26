@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-"ssh:build": "ssh Sahilhasnain@98.70.32.91"
+    "ssh:build": "ssh Sahilhasnain@98.70.32.91",
+    "upload:pdfs": "scp pdfs/*.pdf Sahilhasnain@98.70.32.91:/mnt/rag-pdfs/"
   },
   "npmrc": {
     "legacy-peer-deps": true

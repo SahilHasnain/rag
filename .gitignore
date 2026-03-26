@@ -35,3 +35,6 @@ next-env.d.ts
 
 # vector store data
 /data
+
+# PDFs folder (uploaded books)
+/pdfs
