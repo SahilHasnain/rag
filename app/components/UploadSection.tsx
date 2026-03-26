@@ -1,76 +1,51 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { uploadBookText, uploadBookPDF, getJobStatus } from '../actions';
+import { useState, useTransition, useEffect } from 'react';
+import { uploadBookText, listPDFs, indexPDF, getJobStatus } from '../actions';
 
 export default function UploadSection() {
     const [text, setText] = useState('');
-    const [uploadMode, setUploadMode] = useState<'text' | 'pdf'>('pdf');
+    const [uploadMode, setUploadMode] = useState<'pdf' | 'text'>('pdf');
     const [isPending, startTransition] = useTransition();
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [pdfFiles, setPdfFiles] = useState<Array<{ name: string; size: number; sizeInMB: string; modifiedAt: string }>>([]);
     const [jobId, setJobId] = useState<string | null>(null);
     const [jobProgress, setJobProgress] = useState<{ progress: number; message: string } | null>(null);
 
-    const handleTextUpload = () => {
-        if (!text.trim()) {
-            setMessage({ type: 'error', text: 'Please paste some text first' });
-            return;
+    // Load PDF list on mount
+    useEffect(() => {
+        if (uploadMode === 'pdf') {
+            loadPDFs();
         }
+    }, [uploadMode]);
 
+    const loadPDFs = () => {
         startTransition(async () => {
-            const result = await uploadBookText(text);
-            setMessage({
-                type: result.success ? 'success' : 'error',
-                text: result.message,
-            });
-
+            const result = await listPDFs();
             if (result.success) {
-                setText('');
+                setPdfFiles(result.files);
             }
         });
     };
 
-    const handlePDFUpload = (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        const formData = new FormData(e.currentTarget);
-        const file = formData.get('pdf') as File;
-
-        // Validate file size (100MB limit)
-        if (file && file.size > 100 * 1024 * 1024) {
-            setMessage({
-                type: 'error',
-                text: 'File size exceeds 100MB limit. Please upload a smaller file.',
-            });
-            return;
-        }
-
-        // Show file size info
-        const fileSizeMB = file ? (file.size / (1024 * 1024)).toFixed(2) : '0';
-        console.log(`Uploading PDF: ${file?.name} (${fileSizeMB} MB)`);
-
+    const handleIndexPDF = (filename: string) => {
         startTransition(async () => {
-            const result = await uploadBookPDF(formData);
+            const result = await indexPDF(filename);
 
             if (result.success && result.jobId) {
                 setJobId(result.jobId);
                 setMessage({
                     type: 'success',
-                    text: 'PDF processing started in background! You can close this page and come back later.',
+                    text: 'PDF indexing started in background! You can close this page.',
                 });
 
                 // Start polling for progress
                 pollJobProgress(result.jobId);
             } else {
                 setMessage({
-                    type: result.success ? 'success' : 'error',
+                    type: 'error',
                     text: result.message,
                 });
-            }
-
-            if (result.success) {
-                e.currentTarget.reset();
-                setSelectedFile(null);
             }
         });
     };
@@ -109,10 +84,29 @@ export default function UploadSection() {
         }, 2000); // Poll every 2 seconds
     };
 
+    const handleTextUpload = () => {
+        if (!text.trim()) {
+            setMessage({ type: 'error', text: 'Please paste some text first' });
+            return;
+        }
+
+        startTransition(async () => {
+            const result = await uploadBookText(text);
+            setMessage({
+                type: result.success ? 'success' : 'error',
+                text: result.message,
+            });
+
+            if (result.success) {
+                setText('');
+            }
+        });
+    };
+
     return (
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-6">
             <h2 className="text-2xl font-semibold mb-4 text-slate-900 dark:text-white">
-                Upload Book Content
+                📚 Index Islamic Books
             </h2>
 
             {/* Mode Toggle */}
@@ -120,95 +114,107 @@ export default function UploadSection() {
                 <button
                     onClick={() => setUploadMode('pdf')}
                     className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${uploadMode === 'pdf'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                         }`}
                 >
-                    📄 PDF Upload
+                    📄 Index PDF
                 </button>
                 <button
                     onClick={() => setUploadMode('text')}
                     className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${uploadMode === 'text'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                         }`}
                 >
-                    📝 Text Paste
+                    📝 Index Text
                 </button>
             </div>
 
-            {/* PDF Upload Mode */}
+            {/* PDF List Mode */}
             {uploadMode === 'pdf' && (
-                <form onSubmit={handlePDFUpload} className="space-y-4">
-                    <div>
-                        <label htmlFor="pdfFile" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                            Select your Urdu book PDF:
-                        </label>
-                        <input
-                            type="file"
-                            id="pdfFile"
-                            name="pdf"
-                            accept=".pdf"
-                            required
-                            disabled={isPending}
-                            onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                            className="w-full p-3 border border-slate-300 dark:border-slate-600 rounded-lg 
-                                     bg-white dark:bg-slate-700 text-slate-900 dark:text-white
-                                     file:mr-4 file:py-2 file:px-4
-                                     file:rounded-lg file:border-0
-                                     file:text-sm file:font-semibold
-                                     file:bg-blue-50 file:text-blue-700
-                                     hover:file:bg-blue-100
-                                     dark:file:bg-slate-600 dark:file:text-slate-200
-                                     disabled:opacity-50 disabled:cursor-not-allowed"
-                        />
-                        {selectedFile && (
-                            <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                                📄 {selectedFile.name} ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
-                            </div>
-                        )}
+                <div className="space-y-4">
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                        <p className="text-sm text-blue-800 dark:text-blue-200 mb-2">
+                            📤 Upload PDFs to server first:
+                        </p>
+                        <code className="text-xs bg-blue-100 dark:bg-blue-900/40 p-2 rounded block">
+                            scp your-book.pdf user@vps-ip:~/opt/rag/pdfs/
+                        </code>
+                        <p className="text-xs text-blue-600 dark:text-blue-300 mt-2">
+                            Then refresh this page to see your PDFs below.
+                        </p>
                     </div>
 
                     <button
-                        type="submit"
-                        disabled={isPending || !!jobId}
-                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 
-                                 text-white font-semibold py-3 px-6 rounded-lg
-                                 transition-colors duration-200
-                                 disabled:cursor-not-allowed"
+                        onClick={loadPDFs}
+                        disabled={isPending}
+                        className="w-full bg-slate-600 hover:bg-slate-700 disabled:bg-slate-400 
+                                 text-white font-semibold py-2 px-4 rounded-lg
+                                 transition-colors duration-200"
                     >
-                        {isPending ? 'Uploading...' : jobId ? 'Processing...' : 'Upload & Index PDF'}
+                        🔄 Refresh PDF List
                     </button>
+
+                    {/* PDF Files List */}
+                    {pdfFiles.length === 0 ? (
+                        <div className="text-center text-slate-500 dark:text-slate-400 py-8">
+                            <p>No PDFs found in /pdfs folder</p>
+                            <p className="text-sm mt-2">Upload PDFs using SCP/SFTP first</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            <h3 className="font-medium text-slate-700 dark:text-slate-300">
+                                Available PDFs ({pdfFiles.length}):
+                            </h3>
+                            {pdfFiles.map((file) => (
+                                <div
+                                    key={file.name}
+                                    className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700 rounded-lg"
+                                >
+                                    <div className="flex-1">
+                                        <p className="font-medium text-slate-900 dark:text-white">
+                                            {file.name}
+                                        </p>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                            {file.sizeInMB} MB
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => handleIndexPDF(file.name)}
+                                        disabled={isPending || !!jobId}
+                                        className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 
+                                                 text-white font-semibold py-2 px-4 rounded-lg
+                                                 transition-colors duration-200 text-sm"
+                                    >
+                                        {jobId ? '⏳ Processing...' : '▶️ Index'}
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
 
                     {/* Progress Bar */}
                     {jobProgress && (
-                        <div className="space-y-2">
-                            <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
+                        <div className="space-y-2 bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                            <div className="flex justify-between text-sm text-slate-700 dark:text-slate-300">
                                 <span>{jobProgress.message}</span>
-                                <span>{jobProgress.progress}%</span>
+                                <span className="font-bold">{jobProgress.progress}%</span>
                             </div>
-                            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden">
+                            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden">
                                 <div
-                                    className="bg-blue-600 h-full transition-all duration-300 ease-out"
+                                    className="bg-blue-600 h-full transition-all duration-300 ease-out flex items-center justify-center text-xs text-white font-bold"
                                     style={{ width: `${jobProgress.progress}%` }}
-                                />
+                                >
+                                    {jobProgress.progress > 10 && `${jobProgress.progress}%`}
+                                </div>
                             </div>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                            <p className="text-xs text-slate-600 dark:text-slate-400">
                                 💡 This may take 2-3 hours for large books. You can close this page and come back later!
                             </p>
                         </div>
                     )}
-
-                    <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
-                        <p>💡 Tips:</p>
-                        <ul className="list-disc list-inside space-y-1 ml-2">
-                            <li>Upload your 5000-page Urdu book PDF (up to 100MB)</li>
-                            <li>PDF must be text-based (not scanned images)</li>
-                            <li>Processing may take a few moments for large files</li>
-                            <li>Urdu RTL text is handled automatically ✓</li>
-                        </ul>
-                    </div>
-                </form>
+                </div>
             )}
 
             {/* Text Paste Mode */}
@@ -258,8 +264,8 @@ export default function UploadSection() {
             {message && (
                 <div
                     className={`mt-4 p-4 rounded-lg ${message.type === 'success'
-                        ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
-                        : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
+                            ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200'
+                            : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
                         }`}
                 >
                     {message.text}

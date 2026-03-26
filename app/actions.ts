@@ -6,6 +6,13 @@ import pdf from 'pdf-parse';
 import * as fs from 'fs';
 import * as path from 'path';
 
+const PDF_FOLDER = path.join(process.cwd(), 'pdfs');
+
+// Ensure PDF folder exists
+if (!fs.existsSync(PDF_FOLDER)) {
+  fs.mkdirSync(PDF_FOLDER, { recursive: true });
+}
+
 export async function uploadBookText(text: string) {
   try {
     await initializeVectorStore(text);
@@ -16,35 +23,42 @@ export async function uploadBookText(text: string) {
   }
 }
 
-export async function uploadBookPDF(formData: FormData) {
+export async function listPDFs() {
   try {
-    const file = formData.get('pdf') as File;
+    const files = fs.readdirSync(PDF_FOLDER);
+    const pdfFiles = files
+      .filter(file => file.toLowerCase().endsWith('.pdf'))
+      .map(file => {
+        const stats = fs.statSync(path.join(PDF_FOLDER, file));
+        return {
+          name: file,
+          size: stats.size,
+          sizeInMB: (stats.size / (1024 * 1024)).toFixed(2),
+          modifiedAt: stats.mtime.toISOString(),
+        };
+      });
     
-    if (!file) {
-      return { success: false, message: 'No file provided' };
-    }
+    return { success: true, files: pdfFiles };
+  } catch (error) {
+    console.error('Error listing PDFs:', error);
+    return { success: false, files: [], message: `Failed to list PDFs: ${error}` };
+  }
+}
 
-    if (file.type !== 'application/pdf') {
-      return { success: false, message: 'Please upload a PDF file' };
+export async function indexPDF(filename: string) {
+  try {
+    const filePath = path.join(PDF_FOLDER, filename);
+    
+    if (!fs.existsSync(filePath)) {
+      return { success: false, message: 'PDF file not found' };
     }
 
     // Create a job for tracking
     const job = createJob('pdf_indexing');
 
-    // Convert file to buffer and save temporarily
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    
-    // Save file temporarily
-    const tempPath = path.join(process.cwd(), 'data', `temp_${job.id}.pdf`);
-    if (!fs.existsSync(path.dirname(tempPath))) {
-      fs.mkdirSync(path.dirname(tempPath), { recursive: true });
-    }
-    fs.writeFileSync(tempPath, buffer);
-
     // Start background processing immediately (don't await)
     setImmediate(() => {
-      processBookPDFInBackground(tempPath, file.name, job.id).catch(err => {
+      processBookPDFInBackground(filePath, filename, job.id).catch(err => {
         console.error('Background processing error:', err);
         updateJob(job.id, {
           status: 'failed',
@@ -57,11 +71,11 @@ export async function uploadBookPDF(formData: FormData) {
     return { 
       success: true, 
       jobId: job.id,
-      message: `PDF upload started! Processing in background. Job ID: ${job.id}` 
+      message: `PDF indexing started! Processing in background. Job ID: ${job.id}` 
     };
   } catch (error) {
-    console.error('Error processing PDF:', error);
-    return { success: false, message: `Failed to process PDF: ${error}` };
+    console.error('Error indexing PDF:', error);
+    return { success: false, message: `Failed to index PDF: ${error}` };
   }
 }
 
@@ -105,9 +119,6 @@ async function processBookPDFInBackground(filePath: string, fileName: string, jo
       message: `✅ Successfully indexed ${data.numpages} pages with ${extractedText.length} characters!`,
       completedAt: Date.now(),
     });
-
-    // Clean up temp file
-    fs.unlinkSync(filePath);
   } catch (error) {
     console.error('Background processing error:', error);
     updateJob(jobId, {
@@ -115,11 +126,6 @@ async function processBookPDFInBackground(filePath: string, fileName: string, jo
       message: `Error: ${error instanceof Error ? error.message : String(error)}`,
       completedAt: Date.now(),
     });
-    
-    // Clean up temp file on error
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
   }
 }
 

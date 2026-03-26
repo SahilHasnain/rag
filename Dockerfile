@@ -35,6 +35,9 @@ COPY --from=builder /app/app ./app
 COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/next.config.ts ./next.config.ts
 
+# Create pdfs directory for uploaded PDFs
+RUN mkdir -p /app/pdfs
+
 # Expose port
 EXPOSE 3000
 

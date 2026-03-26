@@ -13,6 +13,8 @@ services:
       - /mnt/rag-data:/app/data
       # Persist uploaded files (optional)
       - /mnt/rag-uploads:/app/uploads
+      # Mount PDFs folder for easy upload via SCP
+      - /mnt/rag-pdfs:/app/pdfs
     networks:
       - rag-network
     healthcheck:
