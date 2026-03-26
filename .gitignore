@@ -24,7 +24,6 @@ yarn-error.log*
 
 # local env files
 .env*.local
-.env
 
 # vercel
 .vercel
@@ -35,3 +34,7 @@ next-env.d.ts
 
 # vector store data
 /data
+
+# PDFs folder (uploaded books)
+/pdfs
+config.bat

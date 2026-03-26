@@ -22,6 +22,12 @@ RUN npm run build
 # Production image
 FROM node:20-alpine AS runner
 
+# Install runtime dependencies for onnxruntime and native modules
+RUN apk add --no-cache \
+    libstdc++ \
+    libgomp \
+    gcompat
+
 WORKDIR /app
 
 # Install only production dependencies
