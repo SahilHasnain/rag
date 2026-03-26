@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+"ssh:build": "ssh Sahilhasnain@98.70.32.91"
   },
   "npmrc": {
     "legacy-peer-deps": true

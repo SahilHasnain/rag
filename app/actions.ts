@@ -3,6 +3,8 @@
 import { initializeVectorStore, searchSimilarDocuments, multiQueryRetrieval } from '@/lib/vectorstore';
 import { createJob, updateJob, getJob } from '@/lib/jobQueue';
 import pdf from 'pdf-parse';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export async function uploadBookText(text: string) {
   try {
@@ -29,13 +31,26 @@ export async function uploadBookPDF(formData: FormData) {
     // Create a job for tracking
     const job = createJob('pdf_indexing');
 
-    // Start background processing (don't await)
-    processBookPDFInBackground(file, job.id).catch(err => {
-      console.error('Background processing error:', err);
-      updateJob(job.id, {
-        status: 'failed',
-        message: `Error: ${err.message}`,
-        completedAt: Date.now(),
+    // Convert file to buffer and save temporarily
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    
+    // Save file temporarily
+    const tempPath = path.join(process.cwd(), 'data', `temp_${job.id}.pdf`);
+    if (!fs.existsSync(path.dirname(tempPath))) {
+      fs.mkdirSync(path.dirname(tempPath), { recursive: true });
+    }
+    fs.writeFileSync(tempPath, buffer);
+
+    // Start background processing immediately (don't await)
+    setImmediate(() => {
+      processBookPDFInBackground(tempPath, file.name, job.id).catch(err => {
+        console.error('Background processing error:', err);
+        updateJob(job.id, {
+          status: 'failed',
+          message: `Error: ${err.message}`,
+          completedAt: Date.now(),
+        });
       });
     });
 
@@ -50,46 +65,62 @@ export async function uploadBookPDF(formData: FormData) {
   }
 }
 
-async function processBookPDFInBackground(file: File, jobId: string) {
-  updateJob(jobId, { status: 'processing', message: 'Extracting text from PDF...' });
+async function processBookPDFInBackground(filePath: string, fileName: string, jobId: string) {
+  try {
+    updateJob(jobId, { status: 'processing', message: 'Extracting text from PDF...' });
 
-  // Convert file to buffer
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+    // Read file from disk
+    const buffer = fs.readFileSync(filePath);
 
-  // Extract text from PDF
-  const data = await pdf(buffer);
-  const extractedText = data.text;
+    // Extract text from PDF
+    const data = await pdf(buffer);
+    const extractedText = data.text;
 
-  if (!extractedText || extractedText.trim().length === 0) {
-    throw new Error('No text found in PDF. Make sure it\'s not a scanned image.');
-  }
-
-  updateJob(jobId, { 
-    message: `Extracted ${data.numpages} pages. Creating embeddings...` 
-  });
-
-  // Index with progress tracking
-  await initializeVectorStore(
-    extractedText,
-    { bookName: file.name },
-    (processed, total) => {
-      const progress = Math.round((processed / total) * 100);
-      updateJob(jobId, {
-        progress,
-        totalChunks: total,
-        processedChunks: processed,
-        message: `Processing embeddings: ${processed}/${total} chunks (${progress}%)`,
-      });
+    if (!extractedText || extractedText.trim().length === 0) {
+      throw new Error('No text found in PDF. Make sure it\'s not a scanned image.');
     }
-  );
 
-  updateJob(jobId, {
-    status: 'completed',
-    progress: 100,
-    message: `✅ Successfully indexed ${data.numpages} pages with ${extractedText.length} characters!`,
-    completedAt: Date.now(),
-  });
+    updateJob(jobId, { 
+      message: `Extracted ${data.numpages} pages. Creating embeddings...` 
+    });
+
+    // Index with progress tracking
+    await initializeVectorStore(
+      extractedText,
+      { bookName: fileName },
+      (processed, total) => {
+        const progress = Math.round((processed / total) * 100);
+        updateJob(jobId, {
+          progress,
+          totalChunks: total,
+          processedChunks: processed,
+          message: `Processing embeddings: ${processed}/${total} chunks (${progress}%)`,
+        });
+      }
+    );
+
+    updateJob(jobId, {
+      status: 'completed',
+      progress: 100,
+      message: `✅ Successfully indexed ${data.numpages} pages with ${extractedText.length} characters!`,
+      completedAt: Date.now(),
+    });
+
+    // Clean up temp file
+    fs.unlinkSync(filePath);
+  } catch (error) {
+    console.error('Background processing error:', error);
+    updateJob(jobId, {
+      status: 'failed',
+      message: `Error: ${error instanceof Error ? error.message : String(error)}`,
+      completedAt: Date.now(),
+    });
+    
+    // Clean up temp file on error
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
 }
 
 export async function getJobStatus(jobId: string) {
