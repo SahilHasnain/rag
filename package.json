@@ -4,11 +4,12 @@
   "private": true,
   "scripts": {
     "preinstall": "npx only-allow npm",
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "node init && next dev",
+    "build": "node init && next build",
+    "start": "node init && next start",
     "lint": "eslint",
-"ssh:build": "ssh Sahilhasnain@98.70.32.91"
+    "ssh:build": "ssh Sahilhasnain@98.70.32.91",
+    "upload:pdfs": "scp pdfs/*.pdf Sahilhasnain@98.70.32.91:/mnt/rag-pdfs/"
   },
   "npmrc": {
     "legacy-peer-deps": true
